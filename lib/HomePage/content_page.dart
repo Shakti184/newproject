@@ -1,10 +1,13 @@
 import 'dart:io';
+
 import 'package:dio/dio.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:open_file/open_file.dart';
+import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:sqflite/sqflite.dart';
 
 class ContentPage extends StatefulWidget {
   const ContentPage({Key? key}) : super(key: key);
@@ -15,12 +18,34 @@ class ContentPage extends StatefulWidget {
 
 class _ContentPageState extends State<ContentPage> {
   late Future<ListResult> futureFiles;
-  Map<int, double> downloadProgress = {};
+  Map<String, double> downloadProgress = {}; // Changed index type to String
+
+  late Database _database;
 
   @override
   void initState() {
     super.initState();
     futureFiles = FirebaseStorage.instance.ref('/files').listAll();
+    _initDatabase();
+  }
+
+  Future<void> _initDatabase() async {
+    final Directory documentsDirectory = await getApplicationDocumentsDirectory();
+    final String path = join(documentsDirectory.path, 'files.db');
+
+    _database = await openDatabase(
+      path,
+      version: 1,
+      onCreate: (Database db, int version) async {
+        await db.execute('''
+          CREATE TABLE files (
+            id INTEGER PRIMARY KEY,
+            name TEXT,
+            path TEXT
+          )
+        ''');
+      },
+    );
   }
 
   @override
@@ -43,7 +68,7 @@ class _ContentPageState extends State<ContentPage> {
               itemCount: files.length,
               itemBuilder: (context, index) {
                 final file = files[index];
-                double? progress = downloadProgress[index];
+                double? progress = downloadProgress[file.name]; // Changed to use file name as index
 
                 return ListTile(
                   title: Text(file.name),
@@ -53,9 +78,9 @@ class _ContentPageState extends State<ContentPage> {
                           backgroundColor: Colors.black26,
                         )
                       : null,
-                  onTap: () => openOrDownloadFile(context, index, file),
+                  onTap: () => openOrDownloadFile(context, file),
                   trailing: IconButton(
-                    onPressed: () => downloadFile(context, index, file),
+                    onPressed: () => downloadFile(context, file),
                     icon: const Icon(
                       Icons.download,
                       color: Colors.black,
@@ -72,31 +97,17 @@ class _ContentPageState extends State<ContentPage> {
     );
   }
 
-  Future<void> downloadFile(BuildContext context, int index, Reference ref) async {
+  Future<void> downloadFile(BuildContext context, Reference ref) async {
     final url = await ref.getDownloadURL();
     final PermissionStatus status = await Permission.storage.request();
     if (status != PermissionStatus.granted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Storage permission denied',
-            style: Theme.of(context).textTheme.bodyText1,
-          ),
-        ),
-      );
+      _showSnackBar(context, 'Storage permission denied');
       return;
     }
 
     final Directory? appDir = await getExternalStorageDirectory();
     if (appDir == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Failed to access external storage',
-            style: Theme.of(context).textTheme.bodyText1,
-          ),
-        ),
-      );
+      _showSnackBar(context, 'Failed to access external storage');
       return;
     }
 
@@ -111,54 +122,39 @@ class _ContentPageState extends State<ContentPage> {
           onReceiveProgress: (received, total) {
             double progress = received / total;
             setState(() {
-              downloadProgress[index] = progress;
+              downloadProgress[ref.name] = progress; // Update progress using file name
             });
           },
         );
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Downloaded ${ref.name}'),
-        ),
-      );
+      _showSnackBar(context, 'Downloaded ${ref.name}');
+
+      await _saveFileToDatabase(ref.name, filePath);
     } catch (e) {
       print('Error downloading file: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Error downloading file',
-            style: Theme.of(context).textTheme.bodyText1,
-          ),
-        ),
-      );
+      _showSnackBar(context, 'Error downloading file');
     }
   }
 
-  Future<void> openOrDownloadFile(BuildContext context, int index, Reference ref) async {
+  Future<void> _saveFileToDatabase(String name, String path) async {
+    await _database.insert(
+      'files',
+      {'name': name, 'path': path},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> openOrDownloadFile(BuildContext context, Reference ref) async {
     final PermissionStatus status = await Permission.storage.request();
     if (status != PermissionStatus.granted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Storage permission denied',
-            style: Theme.of(context).textTheme.bodyText1,
-          ),
-        ),
-      );
+      _showSnackBar(context, 'Storage permission denied');
       return;
     }
 
     final Directory? appDir = await getExternalStorageDirectory();
     if (appDir == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Failed to access external storage',
-            style: Theme.of(context).textTheme.bodyText1,
-          ),
-        ),
-      );
+      _showSnackBar(context, 'Failed to access external storage');
       return;
     }
 
@@ -166,28 +162,43 @@ class _ContentPageState extends State<ContentPage> {
     final File file = File(filePath);
 
     if (await file.exists()) {
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('File Downloaded'),
-          content: const Text('Do you want to open the file?'),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () async {
-                Navigator.of(context).pop();
-                await OpenFile.open(filePath);
-              },
-              child: const Text('Open'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-          ],
-        ),
-      );
+      _showOpenDialog(context, filePath);
     } else {
-      await downloadFile(context, index, ref);
+      await downloadFile(context, ref);
     }
+  }
+
+  void _showSnackBar(BuildContext context, String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          message,
+          style: Theme.of(context).textTheme.bodyText1,
+        ),
+      ),
+    );
+  }
+
+  void _showOpenDialog(BuildContext context, String filePath) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('File Downloaded'),
+        content: const Text('Do you want to open the file?'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              await OpenFile.open(filePath);
+            },
+            child: const Text('Open'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
   }
 }

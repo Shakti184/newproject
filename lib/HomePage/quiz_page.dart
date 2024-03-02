@@ -33,10 +33,6 @@ class _QuizPageState extends State<QuizPage> {
 
     final urlDownload = await snapshot.ref.getDownloadURL();
     print('Download Link: $urlDownload');
-
-    setState(() {
-      uploadTask = null;
-    });
   }
 
   Future<void> selectFile() async {
@@ -57,8 +53,10 @@ class _QuizPageState extends State<QuizPage> {
         child: Center(
           child: Column(
             children: [
-              if (pickedFile != null && pickedFile!.path!.endsWith('.pdf'))
-                Expanded(
+              if (pickedFile != null && pickedFile!.path != null)
+                SizedBox(
+                  height: 300, // Define height for the PDFView
+                  width: 300, // Define width for the PDFView
                   child: Container(
                     color: Colors.blue[100],
                     child: PDFView(
@@ -66,24 +64,23 @@ class _QuizPageState extends State<QuizPage> {
                     ),
                   ),
                 ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 10),
               ElevatedButton(
                 onPressed: selectFile,
                 child: const Text('Select File'),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 10),
               ElevatedButton(
                 onPressed: uploadFile,
                 child: const Text('Upload File'),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 10),
               buildProgress(),
-              const SizedBox(height: 20),
+              const SizedBox(height: 10),
               ElevatedButton(
                 onPressed:()=> Navigator.push(context,MaterialPageRoute(builder: (context)=>const MeetingLinkPage())),
                 child: const Text('Generate Meeting Link'),
               ),
-              const SizedBox(height: 20),
             ],
           ),
         ),
