@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "396422131494",
+    "project_id": "educational-avenue-app",
+    "storage_bucket": "educational-avenue-app.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:396422131494:android:00d034a21a192ed7429be7",
+        "android_client_info": {
+          "package_name": "com.example.newproject"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC-a3yltBC5NqGxMHoA1es7j51yvmQh-Yg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
